@@ -27,15 +27,16 @@ class shopifyBulkStream(ShopifyStream):
 
         query = base_query.replace("__query_name__", self.query_name)
         query = query.replace("__selected_fields__", self.gql_selected_fields)
-        query = query.replace("__filters__", self.filters)
+
+        filters = self.filters
+
+        # No filters should also exclude the parens
+        if filters:
+            query = query.replace("__filters__", "(" + filters + ")")
+        else:
+            query = query.replace("__filters__", "")
 
         return query
-
-    # def get_next_page_token(
-    #     self, response: requests.Response, previous_token: Optional[Any]
-    # ) -> Any:
-    #     """Return token identifying next page or None if all records have been read."""
-    #     return None
 
     @property
     def filters(self):
@@ -82,6 +83,8 @@ class shopifyBulkStream(ShopifyStream):
             status = next(
                 extract_jsonpath(status_jsonpath, input=status_response.json())
             )
+            self.logger.info("Poll status...")
+            self.logger.info(status)
             if status["id"] != operation_id:
                 raise InvalidOperation(
                     "The current job was not triggered by the process, "
@@ -89,8 +92,18 @@ class shopifyBulkStream(ShopifyStream):
                 )
             if status["url"]:
                 return status["url"]
-            if status["status"] == "FAILED":
-                raise InvalidOperation(f"Job failed: {status['errorCode']}")
+            if status["status"] == "COMPLETED":
+                if status["objectCount"] == '0':
+                    self.logger.info("No data found for stream: %s", self.name)
+                    return None
+                raise InvalidOperation(f"Objects for stream {self.name} is not empty, but no download url was provided.")
+            elif status["status"] == "FAILED":
+                # Can't access, skip.
+                if status['errorCode'] == "ACCESS_DENIED":
+                    return None
+                if status['errorCode'] == "INTERNAL_SERVER_ERROR":
+                    return None
+                raise InvalidOperation(f"Job failed: {status['errorCode']}, {status}")
             sleep(sleep_time)
         raise OperationFailed("Job Timeout")
 
@@ -98,11 +111,16 @@ class shopifyBulkStream(ShopifyStream):
         """Parse the response and return an iterator of result rows."""
         operation_id_jsonpath = "$.data.bulkOperationRunQuery.bulkOperation.id"
         request_response = response.json()
+
+        self.logger.info(f"Request response: {request_response}")
+
         operation_id = next(
             extract_jsonpath(operation_id_jsonpath, input=request_response)
         )
 
         url = self.check_status(operation_id)
+        if not url:
+            return []
 
         output = requests.get(url, stream=True)
 
