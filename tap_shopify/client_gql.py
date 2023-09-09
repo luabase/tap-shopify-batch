@@ -52,7 +52,7 @@ class shopifyGqlStream(ShopifyStream):
         if self.single_object_params:
             params = self.single_object_params
         return params
-    
+
     def prepare_request_payload(
         self, context: Optional[dict], next_page_token: Optional[Any]
     ) -> Optional[dict]:
@@ -63,18 +63,62 @@ class shopifyGqlStream(ShopifyStream):
             "query": query,
             "variables": params,
         }
+        self.saved_context = context
         self.logger.debug(f"Attempting query:\n{query}")
         return request_data
 
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
         """Parse the response and return an iterator of result rows."""
-        if self.replication_key:
-            json_path = f"$.data.{self.query_name}.edges[*].node"
-        else:
-            json_path = f"$.data.{self.query_name}"
+        # if self.replication_key:
+        #     json_path = f"$.data.{self.query_name}.edges[*].node"
+        # else:
+        #     json_path = f"$.data.{self.query_name}"
+        
+        # Not sure why replication_key matters here. The data is still stored under node
+        # See locations stream.
+        json_path = f"$.data.{self.query_name}.edges[*].node"
         response = response.json()
 
-        if response.get("errors"):
+        errors = response.get("errors")
+        if errors:
+            # Don't handle and crash.
+            if not self.config.get("ignore_access_denied"):
+                raise Exception(response["errors"])
+
+            # Handle errors!
+            for error in errors:
+                code = error.get("extensions", {}).get('code', None)
+                if code == 'ACCESS_DENIED':
+                    # Try again!
+                    field = error['path'][-1]
+                    
+                    # This failed on the top level, which means we don't have access to the endpoint.
+                    if len(error['path']) == 1:
+                        self.logger.error(f"Skipping stream {self.name} due to access denied error: {error['message']}")
+                        return None
+
+                    # Otherwise it's a subfield we can ignore.
+                    self.logger.error(f"Ignoring access denied field: {field}. Error: {error['message']}. Updating schema...")
+                    self.schema = delete_schema_item(self.schema, error['path'][-1])
+                    # Delete the attribute so we regen the query.
+                    del self.query
+                    yield from self.request_records(self.saved_context)
+                if code == 'missingRequiredArguments':
+                    self.logger.error(f"Missing required arguments for stream: {self.name}, {error['message']}")
+                    return None
             raise Exception(response["errors"])
 
         yield from extract_jsonpath(json_path, input=response)
+
+
+def delete_schema_item(d, target_key):
+    if not isinstance(d, dict):
+        return d
+    if target_key in d:
+        del d[target_key]
+    for key in d:
+        if key == 'required' and target_key in d[key]:
+            d[key].remove(target_key)
+        else:
+            d[key] = delete_schema_item(d[key], target_key)
+    return d

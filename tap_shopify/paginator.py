@@ -51,6 +51,12 @@ class ShopifyPaginator(BaseAPIPaginator):
         """Get the next pagination value."""
 
         response_json = response.json()
+
+        # Request failed. No next page.
+        # Some requests may fail, like for an bad endpoint / schema.
+        if response_json.get('errors', None):
+            return None
+
         query_name = self.query_name(response_json)
 
         cost = response_json["extensions"].get("cost")

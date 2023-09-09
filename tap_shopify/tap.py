@@ -73,6 +73,12 @@ class TapShopify(Tap):
             description="To use the bulk API or not.",
         ),
         th.Property(
+            "ignore_access_denied",
+            th.BooleanType,
+            default=True,
+            description="Ignores streams where access is denied, and prune subfields when access is denied.",
+        ),
+        th.Property(
             "ignore_deprecated",
             th.BooleanType,
             default=True,
