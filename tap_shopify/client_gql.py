@@ -64,7 +64,7 @@ class shopifyGqlStream(ShopifyStream):
             "variables": params,
         }
         self.saved_context = context
-        self.logger.debug(f"Attempting query:\n{query}")
+        self.logger.debug(f"Attempting query:\n{query}, with params {params}, with context {context}, and next_page_token {next_page_token}")
         return request_data
     
     def ignore_path(self, path):
