@@ -59,13 +59,11 @@ class ShopifyStream(GraphQLStream):
             location="header",
         )
 
-    @property
     def get_new_paginator(self):
-        if not self.replication_key or self.config.get("bulk"):
-            paginator = SinglePagePaginator
+        if self.config.get("bulk"):
+            return SinglePagePaginator()
         else:
-            paginator = ShopifyPaginator
-        return paginator
+            return ShopifyPaginator(self.logger)
 
     @property
     def http_headers(self) -> dict:
