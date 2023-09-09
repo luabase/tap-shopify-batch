@@ -66,6 +66,11 @@ class shopifyGqlStream(ShopifyStream):
         self.saved_context = context
         self.logger.debug(f"Attempting query:\n{query}")
         return request_data
+    
+    def ignore_path(self, path):
+        self.schema = delete_schema_item(self.schema, path[-1])
+        # Delete the attribute so we regen the query.
+        del self.query
 
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
         """Parse the response and return an iterator of result rows."""
@@ -99,14 +104,20 @@ class shopifyGqlStream(ShopifyStream):
 
                     # Otherwise it's a subfield we can ignore.
                     self.logger.error(f"Ignoring access denied field: {field}. Error: {error['message']}. Updating schema...")
-                    self.schema = delete_schema_item(self.schema, error['path'][-1])
-                    # Delete the attribute so we regen the query.
-                    del self.query
+                    self.ignore_path(error['path'])
                     yield from self.request_records(self.saved_context)
-                if code == 'missingRequiredArguments':
+                elif code == 'missingRequiredArguments':
                     self.logger.error(f"Missing required arguments for stream: {self.name}, {error['message']}")
                     return None
-            raise Exception(response["errors"])
+                elif error.get('path', None):
+                    self.logger.error(f"Not an access denied error. But there is a fauly path: {error['path']}. Error: {error['message']}. Ignoring path and updating schema...")
+                    if len(error['path']) == 1:
+                        self.logger.error("Ignoring the entire stream since the path specifies the top level request.")
+                        return None
+                    self.ignore_path(error['path'])
+                    yield from self.request_records(self.saved_context)
+                else:
+                    raise Exception(response["errors"])
 
         yield from extract_jsonpath(json_path, input=response)
 
