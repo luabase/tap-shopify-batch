@@ -154,6 +154,7 @@ class TapShopify(Tap):
         """
         queries = self.queries_gql
 
+        # Ordered by priority.
         incremental_fields = [
             "updatedAt",
             "editedAt",
@@ -161,6 +162,7 @@ class TapShopify(Tap):
             "occurredAt",
             "createdAt",
             "startedAt",
+            "processedAt",
         ]
 
         streams = []
