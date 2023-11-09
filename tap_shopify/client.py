@@ -59,13 +59,11 @@ class ShopifyStream(GraphQLStream):
             location="header",
         )
 
-    @property
     def get_new_paginator(self):
-        if not self.replication_key or self.config.get("bulk"):
-            paginator = SinglePagePaginator
+        if self.config.get("bulk"):
+            return SinglePagePaginator()
         else:
-            paginator = ShopifyPaginator
-        return paginator
+            return ShopifyPaginator(self.logger)
 
     @property
     def http_headers(self) -> dict:
@@ -82,7 +80,7 @@ class ShopifyStream(GraphQLStream):
     def schema_gql(self) -> dict:
         """Return the schema for the stream."""
         return self._tap.schema_gql
-    
+
     @cached_property
     def additional_arguments(self) -> dict:
         """Return the schema for the stream."""
@@ -141,6 +139,12 @@ class ShopifyStream(GraphQLStream):
                 continue
 
             required = field["type"].get("kind") == "NON_NULL"
+
+            # To ignore access denied, we mutate the schema during query to filter out
+            # unaccessible fields. Therefore must mark all fields as not 'required'.
+            if self.config.get("ignore_access_denied"):
+                required = False
+
             type_def = field.get("type", field)
             type_def = type_def["ofType"] or type_def
             field_type = self.extract_field_type(type_def)
@@ -172,7 +176,7 @@ class ShopifyStream(GraphQLStream):
             stream_catalog = next(stream, None)
             if stream_catalog:
                 return stream_catalog["schema"]
-        
+
         stream_type = self.extract_gql_schema(self.gql_type)
         properties = self.get_fields_schema(stream_type["fields"])
         return th.PropertiesList(*properties).to_dict()
