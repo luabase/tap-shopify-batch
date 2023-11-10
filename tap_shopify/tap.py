@@ -1,6 +1,7 @@
 """Shopify tap class."""
 
 from __future__ import annotations
+import logging
 
 from singer_sdk import Tap
 from singer_sdk import typing as th
@@ -174,6 +175,7 @@ class TapShopify(Tap):
 
             gql_type = self.get_gql_query_type(node)
             fields_def = self.get_type_fields(gql_type)
+            # logging.info(f"Fields for {gql_type}: {fields_def}")
 
             # Get the primary key
             pk = [k for k, v in fields_def.items() if v["name"] == "ID"]

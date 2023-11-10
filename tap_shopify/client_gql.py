@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, Optional
 
 import requests  # noqa: TCH002
+import logging
 from singer_sdk.helpers.jsonpath import extract_jsonpath
 
 from tap_shopify.client import ShopifyStream

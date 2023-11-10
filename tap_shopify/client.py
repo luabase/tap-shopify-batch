@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import cached_property
 from inspect import stack
 from typing import Any, Optional
+import logging
 
 from singer_sdk import typing as th
 from singer_sdk.pagination import SinglePagePaginator
@@ -13,6 +14,42 @@ from singer_sdk.streams import GraphQLStream
 from tap_shopify.auth import ShopifyAuthenticator
 from tap_shopify.gql_queries import schema_query
 from tap_shopify.paginator import ShopifyPaginator
+
+line_items_query = '''
+lineItems(first: 100) {
+      edges {
+        node {
+          id
+          quantity
+          product {
+            id
+          }
+          variant {
+            id
+          }
+          discountedTotalSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+            presentmentMoney {
+              amount
+              currencyCode
+            }
+          }
+          originalTotalSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+            presentmentMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+      }
+    }'''
 
 
 def verify_recursion(func):
@@ -175,11 +212,21 @@ class ShopifyStream(GraphQLStream):
             stream = (s for s in streams if s["tap_stream_id"] == self.name)
             stream_catalog = next(stream, None)
             if stream_catalog:
+                # schema = stream_catalog["schema"]
+                # if self.query_name == "orders":
+                #     schema["properties"]['lineItems'] = {"type": ["object", "null"]}
+                #     logging.info(f"Schemas: {schema}")
+                # return schema
                 return stream_catalog["schema"]
 
         stream_type = self.extract_gql_schema(self.gql_type)
         properties = self.get_fields_schema(stream_type["fields"])
-        return th.PropertiesList(*properties).to_dict()
+        properties_dict = th.PropertiesList(*properties).to_dict()
+        if self.query_name == "orders":
+            properties_dict["properties"]['lineItems'] = {"type": ["object", "null"]}
+        return properties_dict
+        # properties = self.get_fields_schema(stream_type["fields"])
+        # return th.PropertiesList(*properties).to_dict()
 
     @cached_property
     def selected_properties(self):
@@ -203,16 +250,35 @@ class ShopifyStream(GraphQLStream):
         schema = self.schema["properties"]
         catalog = {k: v for k, v in schema.items() if k in self.selected_properties}
 
+        def find_parent_key(d, target_key, parent=None):
+            if target_key in d:
+                return parent
+            for key, value in d.items():
+                if isinstance(value, dict):
+                    result = find_parent_key(value, target_key, key)
+                    if result is not None:
+                        return result
+            return None
+
         def denest_schema(schema):
             output = ""
             for key, value in schema.items():
-                if "items" in value.keys():
-                    value = value["items"]
-                if "properties" in value.keys():
-                    denested = denest_schema(value["properties"])
-                    output = f"{output}\n{key}\n{{{denested}\n}}"
-                else:
-                    output = f"{output}\n{key}"
-            return output
 
-        return denest_schema(catalog)
+                if self.query_name == "orders" and key == "lineItems" and find_parent_key(schema, key) == None:
+                    continue
+                else:
+                    if "items" in value.keys():
+                        value = value["items"]
+                    if "properties" in value.keys():
+                        denested = denest_schema(value["properties"])
+                        output = f"{output}\n{key}\n{{{denested}\n}}"
+                    else:
+                        output = f"{output}\n{key}"
+            return output
+        selected_fields = denest_schema(catalog)
+
+        if self.query_name == "orders":
+            selected_fields += line_items_query
+        # logging.info(f"Selected fields: {selected_fields}")
+
+        return selected_fields
