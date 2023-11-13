@@ -191,3 +191,39 @@ queries_query = """{
     }
   }
 }"""
+
+order_line_items_query = '''
+lineItems(first: 100) {
+      edges {
+        node {
+          id
+          quantity
+          product {
+            id
+          }
+          variant {
+            id
+          }
+          discountedTotalSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+            presentmentMoney {
+              amount
+              currencyCode
+            }
+          }
+          originalTotalSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+            presentmentMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+      }
+    }'''

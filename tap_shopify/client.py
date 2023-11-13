@@ -11,7 +11,7 @@ from singer_sdk.pagination import SinglePagePaginator
 from singer_sdk.streams import GraphQLStream
 
 from tap_shopify.auth import ShopifyAuthenticator
-from tap_shopify.gql_queries import schema_query
+from tap_shopify.gql_queries import schema_query, order_line_items_query
 from tap_shopify.paginator import ShopifyPaginator
 
 
@@ -179,7 +179,11 @@ class ShopifyStream(GraphQLStream):
 
         stream_type = self.extract_gql_schema(self.gql_type)
         properties = self.get_fields_schema(stream_type["fields"])
-        return th.PropertiesList(*properties).to_dict()
+        properties_dict = th.PropertiesList(*properties).to_dict()
+        if self.query_name == "orders":
+            # add lineItems schema to orders
+            properties_dict["properties"]['lineItems'] = {"type": ["object", "null"]}
+        return properties_dict
 
     @cached_property
     def selected_properties(self):
@@ -203,16 +207,37 @@ class ShopifyStream(GraphQLStream):
         schema = self.schema["properties"]
         catalog = {k: v for k, v in schema.items() if k in self.selected_properties}
 
+        def find_parent_key(d, target_key, parent=None):
+            if target_key in d:
+                return parent
+            for key, value in d.items():
+                if isinstance(value, dict):
+                    result = find_parent_key(value, target_key, key)
+                    if result is not None:
+                        return result
+            return None
+
         def denest_schema(schema):
             output = ""
             for key, value in schema.items():
-                if "items" in value.keys():
-                    value = value["items"]
-                if "properties" in value.keys():
-                    denested = denest_schema(value["properties"])
-                    output = f"{output}\n{key}\n{{{denested}\n}}"
-                else:
-                    output = f"{output}\n{key}"
-            return output
 
-        return denest_schema(catalog)
+                if self.query_name == "orders" and key == "lineItems" and find_parent_key(schema, key) == None:
+                    # if query is for order line items we do not need to denest and create a query for it since 
+                    # we are doing this manually in line 239 below
+                    continue
+                else:
+                    if "items" in value.keys():
+                        value = value["items"]
+                    if "properties" in value.keys():
+                        denested = denest_schema(value["properties"])
+                        output = f"{output}\n{key}\n{{{denested}\n}}"
+                    else:
+                        output = f"{output}\n{key}"
+            return output
+        selected_fields = denest_schema(catalog)
+
+        if self.query_name == "orders":
+            # add lineItems query to orders
+            selected_fields += order_line_items_query
+
+        return selected_fields
