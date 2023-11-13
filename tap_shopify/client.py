@@ -5,51 +5,14 @@ from __future__ import annotations
 from functools import cached_property
 from inspect import stack
 from typing import Any, Optional
-import logging
 
 from singer_sdk import typing as th
 from singer_sdk.pagination import SinglePagePaginator
 from singer_sdk.streams import GraphQLStream
 
 from tap_shopify.auth import ShopifyAuthenticator
-from tap_shopify.gql_queries import schema_query
+from tap_shopify.gql_queries import schema_query, order_line_items_query
 from tap_shopify.paginator import ShopifyPaginator
-
-line_items_query = '''
-lineItems(first: 100) {
-      edges {
-        node {
-          id
-          quantity
-          product {
-            id
-          }
-          variant {
-            id
-          }
-          discountedTotalSet {
-            shopMoney {
-              amount
-              currencyCode
-            }
-            presentmentMoney {
-              amount
-              currencyCode
-            }
-          }
-          originalTotalSet {
-            shopMoney {
-              amount
-              currencyCode
-            }
-            presentmentMoney {
-              amount
-              currencyCode
-            }
-          }
-        }
-      }
-    }'''
 
 
 def verify_recursion(func):
@@ -212,21 +175,15 @@ class ShopifyStream(GraphQLStream):
             stream = (s for s in streams if s["tap_stream_id"] == self.name)
             stream_catalog = next(stream, None)
             if stream_catalog:
-                # schema = stream_catalog["schema"]
-                # if self.query_name == "orders":
-                #     schema["properties"]['lineItems'] = {"type": ["object", "null"]}
-                #     logging.info(f"Schemas: {schema}")
-                # return schema
                 return stream_catalog["schema"]
 
         stream_type = self.extract_gql_schema(self.gql_type)
         properties = self.get_fields_schema(stream_type["fields"])
         properties_dict = th.PropertiesList(*properties).to_dict()
         if self.query_name == "orders":
+            # add lineItems schema to orders
             properties_dict["properties"]['lineItems'] = {"type": ["object", "null"]}
         return properties_dict
-        # properties = self.get_fields_schema(stream_type["fields"])
-        # return th.PropertiesList(*properties).to_dict()
 
     @cached_property
     def selected_properties(self):
@@ -265,6 +222,8 @@ class ShopifyStream(GraphQLStream):
             for key, value in schema.items():
 
                 if self.query_name == "orders" and key == "lineItems" and find_parent_key(schema, key) == None:
+                    # if query is for order line items we do not need to denest and create a query for it since 
+                    # we are doing this manually in line 239 below
                     continue
                 else:
                     if "items" in value.keys():
@@ -278,7 +237,7 @@ class ShopifyStream(GraphQLStream):
         selected_fields = denest_schema(catalog)
 
         if self.query_name == "orders":
-            selected_fields += line_items_query
-        # logging.info(f"Selected fields: {selected_fields}")
+            # add lineItems query to orders
+            selected_fields += order_line_items_query
 
         return selected_fields
