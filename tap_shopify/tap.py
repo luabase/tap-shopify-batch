@@ -174,20 +174,30 @@ class TapShopify(Tap):
 
             gql_type = self.get_gql_query_type(node)
             fields_def = self.get_type_fields(gql_type)
+            append_streams = self.config.get("append_streams", [])
+            stream_name = inflection.underscore(query["name"])
 
             # Get the primary key
-            pk = [k for k, v in fields_def.items() if v["name"] == "ID"]
-            if not pk:
+            pk = [
+                k
+                for k, v in fields_def.items()
+                if v["name"] == "ID" and stream_name not in append_streams
+            ]
+            if not pk and stream_name not in append_streams:
                 continue
 
             # Get the replication key
             date_fields = [k for k, v in fields_def.items() if v["name"] == "DateTime"]
-            rk = next((i for i in incremental_fields if i in date_fields), None)
+
+            if stream_name in append_streams:
+                rk = None
+            else:
+                rk = next((i for i in incremental_fields if i in date_fields), None)
 
             self.gql_types_in_schema.append(gql_type)
 
             type_def = dict(
-                name=inflection.underscore(query["name"]),
+                name=stream_name,
                 query_name=query["name"],
                 gql_type=gql_type,
                 primary_keys=pk,
