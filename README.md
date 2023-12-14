@@ -45,6 +45,7 @@ pipx install git+https://github.com/sehnem/tap-shopify.git@master
 | flattening_enabled  | False    | None    | 'True' to enable schema flattening and automatically expand nested properties. |
 | flattening_max_depth| False    | None    | The max depth to flatten schemas. |
 | batch_config        | False    | None    |             |
+| append_streams      | False    | None    | Array of streams that should be append only |
 
 A full list of supported settings and capabilities is available by running: `tap-shopify --about`
 
